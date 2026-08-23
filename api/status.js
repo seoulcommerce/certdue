@@ -1,15 +1,13 @@
-const { AMOUNT, CURRENCY, INTERVAL, liveKeys, json } = require("../lib-util");
-const { storageKind, blobEnvNames } = require("../lib-store");
+const { AMOUNT, CURRENCY, INTERVAL, json } = require("../lib-util");
 
 module.exports = async function handler(req, res) {
-  const { live } = liveKeys();
   json(res, 200, {
     product: "certdue",
-    live,
+    live: false,
+    killed: true,
     amount: AMOUNT,
     currency: CURRENCY,
     interval: INTERVAL,
-    storage: storageKind(),
-    blobEnv: blobEnvNames()
+    storage: "off"
   });
 };
