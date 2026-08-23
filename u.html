@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload certificate · CertDue</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin:0; background:#f8fafc; color:#0f172a; }
+    .wrap { max-width:560px; margin:0 auto; padding:1.4rem 1rem 3rem; }
+    label { display:block; font-weight:650; margin:.7rem 0 .3rem; }
+    input, select { width:100%; box-sizing:border-box; font:inherit; padding:.6rem .65rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
+    .btn { display:block; width:100%; margin-top:1rem; border:0; background:#1d4ed8; color:#fff; font:inherit; font-weight:750; padding:.85rem; border-radius:10px; cursor:pointer; }
+    .btn:disabled { opacity:.5; }
+    .muted { color:#64748b; }
+    .err { color:#b91c1c; }
+    .ok { color:#166534; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><strong>CertDue</strong></p>
+    <h1>Upload a resale or exemption cert</h1>
+    <p class="muted" id="who">Checking the link…</p>
+    <form id="f" hidden>
+      <label for="pdf">Certificate PDF</label>
+      <input id="pdf" type="file" accept="application/pdf,.pdf">
+      <label for="state">State</label>
+      <select id="state" required></select>
+      <label><input id="signed" type="checkbox"> Signed</label>
+      <label for="dated">Dated</label>
+      <input id="dated" type="date">
+      <label for="expiry">Expiry</label>
+      <input id="expiry" type="date">
+      <button class="btn" type="submit" id="go">Save certificate</button>
+      <p class="muted">Completeness only. This is not a legal opinion and not a tax filing.</p>
+      <p class="err" id="err" hidden></p>
+      <p class="ok" id="ok" hidden></p>
+    </form>
+  </div>
+  <script>
+    const STATES = "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC".split(" ");
+    const sel = document.getElementById("state");
+    sel.innerHTML = '<option value="">State</option>' + STATES.map(s => '<option value="'+s+'">'+s+'</option>').join("");
+    const token = new URLSearchParams(location.search).get("t") || "";
+    const who = document.getElementById("who");
+    const form = document.getElementById("f");
+    if (!token) { who.textContent = "This link is missing a token."; }
+    else {
+      fetch("/api/guest?token=" + encodeURIComponent(token)).then(r => r.json()).then(d => {
+        if (d.error) { who.textContent = "This link is not valid."; return; }
+        who.textContent = d.firm + " · " + d.client;
+        form.hidden = false;
+      }).catch(() => { who.textContent = "Could not open this link."; });
+    }
+    function fileB64(file) {
+      return new Promise((resolve, reject) => {
+        if (!file) return resolve("");
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || ""));
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+    }
+    document.getElementById("f").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("err");
+      const ok = document.getElementById("ok");
+      err.hidden = true; ok.hidden = true;
+      document.getElementById("go").disabled = true;
+      try {
+        const pdf = await fileB64(document.getElementById("pdf").files[0]);
+        const r = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token,
+            state: document.getElementById("state").value,
+            signed: document.getElementById("signed").checked,
+            dated: document.getElementById("dated").value,
+            expiry: document.getElementById("expiry").value,
+            pdf
+          })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "fail");
+        const miss = (d.check && d.check.missing || []);
+        ok.hidden = false;
+        ok.textContent = d.check && d.check.complete
+          ? "Saved. Checklist is complete."
+          : "Saved. Still missing: " + miss.join(", ") + ". Not a legal opinion.";
+      } catch (ex) {
+        err.hidden = false;
+        err.textContent = "Could not save the certificate.";
+      }
+      document.getElementById("go").disabled = false;
+    });
+  </script>
+</body>
+</html>
