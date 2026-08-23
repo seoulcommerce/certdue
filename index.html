@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CertDue</title>
-  <meta name="description" content="Client resale certs. Complete and unexpired. $129/mo for one bookkeeping firm.">
+  <meta name="description" content="Client resale certs. Complete and unexpired. Not for sale.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <style>
-    :root { --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#f8fafc; --blue:#1d4ed8; --blue2:#1e3a8a; }
+    :root { --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#f8fafc; --blue:#1d4ed8; }
     body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color:var(--ink); background:var(--bg); }
     .top { border-bottom:1px solid var(--line); background:#fff; }
     .top .wrap, .wrap { max-width:720px; margin:0 auto; padding:0 1rem; }
@@ -18,13 +18,9 @@
     ul { padding-left:1.15rem; }
     li { margin:.35rem 0; }
     .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:1.1rem; margin:1.4rem 0; }
-    label { display:block; font-weight:650; margin:.7rem 0 .3rem; }
-    input { width:100%; box-sizing:border-box; font:inherit; padding:.65rem .7rem; border:1px solid #cbd5e1; border-radius:8px; }
-    .btn { display:block; width:100%; margin-top:1rem; border:0; background:var(--blue); color:#fff; font:inherit; font-weight:750; padding:.9rem; border-radius:10px; cursor:pointer; }
-    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .btn { display:block; width:100%; margin-top:1rem; border:0; background:#94a3b8; color:#fff; font:inherit; font-weight:750; padding:.9rem; border-radius:10px; cursor:not-allowed; }
     .price { font-weight:750; }
     .not { color:var(--muted); font-size:.92rem; }
-    .err { color:#b91c1c; }
     footer { color:#64748b; font-size:.85rem; padding:2rem 0 3rem; }
     ol { padding-left:1.2rem; }
   </style>
@@ -42,61 +38,19 @@
       <li>Complete and unexpired. You see what is missing or about to lapse before a sale needs it.</li>
       <li>$129 a month. Not Avalara. Not a legal opinion.</li>
     </ul>
-
     <h2 style="font-size:1.05rem;margin:1.6rem 0 .4rem">How it works</h2>
     <ol>
       <li>Start the firm vault.</li>
       <li>Put client resale and exemption certs in it.</li>
       <li>Keep them complete and unexpired. Stop hunting email.</li>
     </ol>
-
     <p class="not"><strong>What it is not.</strong> Not Avalara. We do not calculate tax or file it. Not a legal opinion. We do not say a cert is valid in a given state. Not a consumer app. This is for the bookkeeping firm.</p>
-
-    <form class="card" id="f">
-      <p class="price">$129/mo. One firm vault.</p>
-      <label for="firm">Firm name</label>
-      <input id="firm" required maxlength="120" placeholder="Northside Books LLC">
-      <label for="email">Firm email</label>
-      <input id="email" type="email" required autocomplete="email" placeholder="you@firm.com">
-      <button class="btn" type="submit" id="go">Start the firm vault</button>
-      <p class="not" id="paynote">Opens Stripe Checkout for $129/mo. Software runs the vault. No human queue.</p>
-      <p class="err" id="err" hidden></p>
-    </form>
-
+    <div class="card">
+      <p class="price">Not for sale.</p>
+      <button class="btn" type="button" disabled>Not for sale</button>
+      <p class="not">Checkout is off. No $129 charges.</p>
+    </div>
     <footer>CertDue. Completeness checklist only. No tax calculation. No legal review.</footer>
   </div>
-  <script>
-    const go = document.getElementById("go");
-    const err = document.getElementById("err");
-    const note = document.getElementById("paynote");
-    fetch("/api/status").then(r => r.json()).then(s => {
-      if (!s.live) {
-        go.disabled = true;
-        note.textContent = "Checkout is not live yet. Stripe live keys are not on this host.";
-      }
-    }).catch(() => {});
-    document.getElementById("f").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      err.hidden = true;
-      go.disabled = true;
-      try {
-        const r = await fetch("/api/checkout", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            firm: document.getElementById("firm").value,
-            email: document.getElementById("email").value
-          })
-        });
-        const d = await r.json();
-        if (!r.ok || !d.url) throw new Error(d.error || "checkout_failed");
-        location.href = d.url;
-      } catch (ex) {
-        err.hidden = false;
-        err.textContent = "Could not start Checkout.";
-        go.disabled = false;
-      }
-    });
-  </script>
 </body>
 </html>
