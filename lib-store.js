@@ -8,8 +8,18 @@ function emptyDb() {
   return { firms: {}, clients: {}, certs: {}, links: {}, alerts: [], mailed: {} };
 }
 
+function blobEnvNames() {
+  return Object.keys(process.env).filter((k) => /blob/i.test(k) || /READ_WRITE_TOKEN$/i.test(k)).sort();
+}
+
 function blobToken() {
-  return process.env.BLOB_READ_WRITE_TOKEN || "";
+  const direct = process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_BLOB_READ_WRITE_TOKEN || "";
+  if (direct) return direct;
+  for (const k of blobEnvNames()) {
+    const v = process.env[k];
+    if (v && /READ_WRITE_TOKEN/i.test(k)) return v;
+  }
+  return "";
 }
 
 function storageKind() {
@@ -115,4 +125,4 @@ async function getPdf(rec) {
   return null;
 }
 
-module.exports = { emptyDb, storageKind, getDb, saveDb, putPdf, getPdf };
+module.exports = { emptyDb, storageKind, blobEnvNames, getDb, saveDb, putPdf, getPdf };
