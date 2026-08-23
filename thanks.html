@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CertDue</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin:0; background:#f8fafc; color:#0f172a; }
+    .wrap { max-width:560px; margin:4rem auto; padding:0 1rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><strong>CertDue</strong></p>
+    <h1>Opening the vault…</h1>
+    <p id="m">Confirming the subscription.</p>
+  </div>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const sid = q.get("session_id") || "";
+    if (!sid) {
+      document.getElementById("m").textContent = "Missing session. Go back to the landing page.";
+    } else {
+      location.replace("/api/confirm?session_id=" + encodeURIComponent(sid));
+    }
+  </script>
+</body>
+</html>
