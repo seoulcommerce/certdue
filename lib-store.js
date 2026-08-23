@@ -9,62 +9,49 @@ function emptyDb() {
 }
 
 function blobEnvNames() {
-  return Object.keys(process.env).filter((k) => /blob/i.test(k) || /READ_WRITE_TOKEN$/i.test(k)).sort();
+  return Object.keys(process.env).filter((k) => /blob/i.test(k) || k === "VERCEL_OIDC_TOKEN").sort();
 }
 
-function blobToken() {
-  const direct = process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_BLOB_READ_WRITE_TOKEN || "";
-  if (direct) return direct;
-  for (const k of blobEnvNames()) {
-    const v = process.env[k];
-    if (v && /READ_WRITE_TOKEN/i.test(k)) return v;
-  }
-  return "";
+function hasBlob() {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return true;
+  if (process.env.BLOB_STORE_ID && process.env.VERCEL_OIDC_TOKEN) return true;
+  if (process.env.BLOB_STORE_ID) return true;
+  return false;
 }
 
 function storageKind() {
-  return blobToken() ? "blob" : "memory";
+  return hasBlob() ? "blob" : "memory";
+}
+
+function blobSdk() {
+  return require("@vercel/blob");
 }
 
 async function blobPut(pathname, body, contentType) {
-  const token = blobToken();
-  const r = await fetch("https://blob.vercel-storage.com/" + pathname, {
-    method: "PUT",
-    headers: {
-      authorization: "Bearer " + token,
-      "x-api-version": "7",
-      "x-content-type": contentType || "application/octet-stream",
-      "x-add-random-suffix": "0",
-      "x-allow-overwrite": "true"
-    },
-    body
+  const { put } = blobSdk();
+  return put(pathname, body, {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: contentType || "application/octet-stream"
   });
-  const text = await r.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  if (!r.ok) {
-    const err = new Error("blob_put_failed");
-    err.detail = data;
-    err.status = r.status;
-    throw err;
-  }
-  return data;
 }
 
 async function blobGet(pathname) {
-  const token = blobToken();
-  const listed = await fetch("https://blob.vercel-storage.com?prefix=" + encodeURIComponent(pathname) + "&limit=10", {
-    headers: { authorization: "Bearer " + token, "x-api-version": "7" }
-  });
-  const info = await listed.json();
-  const blobs = (info && info.blobs) || [];
+  const { list, get } = blobSdk();
+  const listed = await list({ prefix: pathname, limit: 10 });
+  const blobs = (listed && listed.blobs) || [];
   const hit = blobs.find((b) => b.pathname === pathname) || blobs[0];
-  if (!hit || !hit.url) return null;
-  const r = await fetch(hit.url, {
-    headers: { authorization: "Bearer " + token }
-  });
-  if (!r.ok) return null;
-  return Buffer.from(await r.arrayBuffer());
+  if (!hit) return null;
+  const res = await get(hit.url || pathname, { access: "private" });
+  if (!res) return null;
+  if (res.stream) {
+    const chunks = [];
+    for await (const c of res.stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+    return Buffer.concat(chunks);
+  }
+  if (res.blob) return Buffer.from(await res.blob.arrayBuffer());
+  return null;
 }
 
 function readTmp() {
@@ -80,7 +67,7 @@ function writeTmp(db) {
 }
 
 async function getDb() {
-  if (!blobToken()) return readTmp();
+  if (!hasBlob()) return readTmp();
   try {
     const buf = await blobGet(DB_PATH);
     if (!buf) return emptyDb();
@@ -92,7 +79,7 @@ async function getDb() {
 }
 
 async function saveDb(db) {
-  if (!blobToken()) {
+  if (!hasBlob()) {
     writeTmp(db);
     return;
   }
@@ -101,13 +88,13 @@ async function saveDb(db) {
 
 async function putPdf(certId, buf) {
   const name = "certs/" + certId + ".pdf";
-  if (!blobToken()) {
+  if (!hasBlob()) {
     const p = path.join("/tmp", name.replace("/", "-"));
     fs.writeFileSync(p, buf);
     return { kind: "memory", path: p, url: "" };
   }
   const data = await blobPut(name, buf, "application/pdf");
-  return { kind: "blob", path: name, url: data.url || "" };
+  return { kind: "blob", path: name, url: (data && data.url) || "" };
 }
 
 async function getPdf(rec) {
@@ -115,13 +102,20 @@ async function getPdf(rec) {
   if (rec.kind === "memory" && rec.path) {
     try { return fs.readFileSync(rec.path); } catch { return null; }
   }
-  if (rec.url) {
-    const r = await fetch(rec.url, {
-      headers: blobToken() ? { authorization: "Bearer " + blobToken() } : {}
-    });
-    if (r.ok) return Buffer.from(await r.arrayBuffer());
+  if (rec.url && hasBlob()) {
+    try {
+      const { get } = blobSdk();
+      const res = await get(rec.url, { access: "private" });
+      if (res && res.stream) {
+        const chunks = [];
+        for await (const c of res.stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+        return Buffer.concat(chunks);
+      }
+    } catch (e) {
+      console.log("certdue_pdf_get", e && e.message);
+    }
   }
-  if (rec.path && blobToken()) return blobGet(rec.path);
+  if (rec.path && hasBlob()) return blobGet(rec.path);
   return null;
 }
 
