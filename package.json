@@ -1,0 +1,7 @@
+{
+  "name": "certdue",
+  "private": true,
+  "dependencies": {
+    "@vercel/blob": "latest"
+  }
+}
