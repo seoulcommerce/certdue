@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vault · CertDue</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    :root { --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#f8fafc; --blue:#1d4ed8; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; color:var(--ink); background:var(--bg); }
+    .top { background:#fff; border-bottom:1px solid var(--line); }
+    .wrap { max-width:960px; margin:0 auto; padding:0 1rem; }
+    .top .wrap { display:flex; align-items:center; justify-content:space-between; height:56px; }
+    h1 { font-size:1.35rem; letter-spacing:-.02em; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:1rem; margin:1rem 0; }
+    label { display:block; font-weight:650; margin:.5rem 0 .25rem; }
+    input, select { width:100%; box-sizing:border-box; font:inherit; padding:.5rem .55rem; border:1px solid #cbd5e1; border-radius:8px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr auto; gap:.5rem; align-items:end; }
+    .btn { border:0; background:var(--blue); color:#fff; font:inherit; font-weight:700; padding:.55rem .8rem; border-radius:8px; cursor:pointer; }
+    .btn:disabled { opacity:.5; }
+    .ghost { background:#fff; color:var(--blue); border:1px solid #bfdbfe; }
+    table { width:100%; border-collapse:collapse; font-size:.92rem; }
+    th, td { text-align:left; padding:.45rem .3rem; border-bottom:1px solid var(--line); vertical-align:top; }
+    .bad { color:#b45309; font-weight:650; }
+    .ok { color:#166534; font-weight:650; }
+    .muted { color:var(--muted); font-size:.9rem; }
+    .err { color:#b91c1c; }
+    .link { font-family: ui-monospace, monospace; font-size:.8rem; word-break:break-all; }
+    .alerts li { margin:.35rem 0; }
+    @media (max-width:700px) { .row { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="top"><div class="wrap">
+    <strong>CertDue</strong>
+    <a class="ghost btn" href="/api/export">Download ZIP + CSV</a>
+  </div></div>
+  <div class="wrap" style="padding-top:1rem;padding-bottom:3rem">
+    <h1 id="firm">Firm vault</h1>
+    <p class="muted">Completeness checklist only. Not a legal opinion. Not Avalara.</p>
+    <p class="err" id="boot" hidden></p>
+
+    <div class="card">
+      <strong>Add a client</strong>
+      <form id="add" class="row" style="margin-top:.6rem">
+        <div><label for="cname">Client name</label><input id="cname" required placeholder="Client LLC"></div>
+        <div><label for="cemail">Client email (optional)</label><input id="cemail" type="email" placeholder="ap@client.com"></div>
+        <button class="btn" type="submit">Add</button>
+      </form>
+      <p class="muted" id="newlink" hidden></p>
+    </div>
+
+    <div class="card">
+      <strong>Certificates</strong>
+      <p class="muted">Fields: state, signed, dated, expiry. Upload the PDF here or send the magic link.</p>
+      <div style="overflow:auto"><table>
+        <thead><tr><th>Client</th><th>State</th><th>Signed</th><th>Dated</th><th>Expiry</th><th>Checklist</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="6" class="muted">No certificates yet.</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <strong>Clients and upload links</strong>
+      <div id="clist" class="muted">None yet.</div>
+    </div>
+
+    <div class="card">
+      <strong>Upload a cert for a client</strong>
+      <form id="up">
+        <label for="uclient">Client</label>
+        <select id="uclient" required></select>
+        <label for="updf">PDF</label>
+        <input id="updf" type="file" accept="application/pdf,.pdf">
+        <div class="row">
+          <div><label for="ustate">State</label><select id="ustate" required></select></div>
+          <div><label for="udated">Dated</label><input id="udated" type="date"></div>
+          <div><label for="uexpiry">Expiry</label><input id="uexpiry" type="date"></div>
+        </div>
+        <label><input id="usigned" type="checkbox"> Signed</label>
+        <button class="btn" type="submit" style="margin-top:.8rem">Save certificate</button>
+        <p class="err" id="uerr" hidden></p>
+      </form>
+    </div>
+
+    <div class="card">
+      <strong>Expiry notices</strong>
+      <p class="muted">Cron mails the firm at 60 / 30 / 7 days and when expired. Same notices land here.</p>
+      <ul class="alerts" id="alerts"><li class="muted">None yet.</li></ul>
+    </div>
+  </div>
+  <script>
+    const STATES = "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC".split(" ");
+    document.getElementById("ustate").innerHTML = '<option value="">State</option>' + STATES.map(s => '<option>'+s+'</option>').join("");
+    const origin = location.origin;
+    let data = null;
+
+    function fileB64(file) {
+      return new Promise((resolve, reject) => {
+        if (!file) return resolve("");
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || ""));
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+    }
+
+    function render() {
+      if (!data) return;
+      document.getElementById("firm").textContent = data.firm.name + " vault";
+      const rows = document.getElementById("rows");
+      if (!data.certs.length) {
+        rows.innerHTML = '<tr><td colspan="6" class="muted">No certificates yet.</td></tr>';
+      } else {
+        rows.innerHTML = data.certs.map(c => {
+          const chk = c.complete
+            ? '<span class="ok">Complete</span>'
+            : '<span class="bad">Missing ' + (c.missing || []).join(", ") + '</span>';
+          const exp = c.window === "expired" ? '<span class="bad">'+(c.expiry||"")+' expired</span>'
+            : (c.window ? (c.expiry||"") + " · " + c.window + "d window" : (c.expiry || "—"));
+          return '<tr><td>'+esc(c.client_name)+'</td><td>'+esc(c.state||"—")+'</td><td>'+(c.signed?"yes":"no")+'</td><td>'+esc(c.dated||"—")+'</td><td>'+exp+'</td><td>'+chk+'</td></tr>';
+        }).join("");
+      }
+      const cl = document.getElementById("clist");
+      const sel = document.getElementById("uclient");
+      if (!data.clients.length) {
+        cl.innerHTML = '<p class="muted">None yet.</p>';
+        sel.innerHTML = '<option value="">Add a client first</option>';
+      } else {
+        cl.innerHTML = data.clients.map(c =>
+          '<p><strong>'+esc(c.name)+'</strong> '+esc(c.email||"")+'<br><button class="ghost btn" data-id="'+c.id+'">Copy upload link</button></p>'
+        ).join("");
+        sel.innerHTML = data.clients.map(c => '<option value="'+c.id+'">'+esc(c.name)+'</option>').join("");
+        cl.querySelectorAll("button[data-id]").forEach(b => b.onclick = () => mint(b.getAttribute("data-id")));
+      }
+      const al = document.getElementById("alerts");
+      if (!data.alerts.length) al.innerHTML = '<li class="muted">None yet.</li>';
+      else al.innerHTML = data.alerts.map(a => '<li>'+esc(a.subject||"Notice")+'<div class="muted">'+esc((a.text||"").split("\n")[0])+'</div></li>').join("");
+    }
+
+    function esc(s) {
+      return String(s||"").replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+    }
+
+    async function load() {
+      const r = await fetch("/api/me");
+      if (r.status === 401) {
+        document.getElementById("boot").hidden = false;
+        document.getElementById("boot").textContent = "No paid session. Start the firm vault from the home page.";
+        return;
+      }
+      data = await r.json();
+      render();
+    }
+
+    async function mint(clientId) {
+      const r = await fetch("/api/link?clientId=" + encodeURIComponent(clientId));
+      const d = await r.json();
+      if (!d.token) return;
+      const url = origin + "/u.html?t=" + d.token;
+      try { await navigator.clipboard.writeText(url); } catch {}
+      const el = document.getElementById("newlink");
+      el.hidden = false;
+      el.innerHTML = 'Upload link (send this yourself): <span class="link">'+esc(url)+'</span>';
+    }
+
+    document.getElementById("add").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const r = await fetch("/api/clients", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: document.getElementById("cname").value,
+          email: document.getElementById("cemail").value
+        })
+      });
+      const d = await r.json();
+      if (d.token) {
+        const url = origin + "/u.html?t=" + d.token;
+        const el = document.getElementById("newlink");
+        el.hidden = false;
+        el.innerHTML = 'Upload link: <span class="link">'+esc(url)+'</span>';
+        document.getElementById("cname").value = "";
+        document.getElementById("cemail").value = "";
+      }
+      await load();
+    });
+
+    document.getElementById("up").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("uerr");
+      err.hidden = true;
+      try {
+        const pdf = await fileB64(document.getElementById("updf").files[0]);
+        const r = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            clientId: document.getElementById("uclient").value,
+            state: document.getElementById("ustate").value,
+            signed: document.getElementById("usigned").checked,
+            dated: document.getElementById("udated").value,
+            expiry: document.getElementById("uexpiry").value,
+            pdf
+          })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "fail");
+        document.getElementById("updf").value = "";
+        await load();
+      } catch (ex) {
+        err.hidden = false;
+        err.textContent = "Could not save.";
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>
